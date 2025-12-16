@@ -3,8 +3,8 @@ import json
 from openai import OpenAI
 from tqdm import tqdm
 
-os.environ["OPENAI_API_KEY"] = "sk-324ca55a29ae451ead71f468d48b3270"
-os.environ["OPENAI_BASE_URL"] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+os.environ["OPENAI_API_KEY"] = "xxx"
+os.environ["OPENAI_BASE_URL"] = "xxx"
 
 
 def openai_intent_only(doc_texts):
@@ -28,7 +28,7 @@ def openai_intent_only(doc_texts):
     ]
 
     all_intents = [item["标签"] for item in intent_templates]
-    # 构建包含标签和定义的说明文本
+    
     intent_descriptions = "\n".join([f"- {item['标签']}: {item['定义']}" for item in intent_templates])
 
     prompt = f"""
@@ -44,7 +44,7 @@ def openai_intent_only(doc_texts):
 
     try:
         response = client.chat.completions.create(
-            model="qwen-plus",
+            model="xxx",
             messages=[
                 {"role": "system",
                  "content": "你是一名专业的医疗意图理解专家，擅长从患者、医生或其他用户的自然语言查询中准确识别与医疗相关的意图。"},
@@ -55,23 +55,17 @@ def openai_intent_only(doc_texts):
         intent_text = response.choices[0].message.content.strip()
         intents = []
 
-        # 优化JSON解析逻辑
         try:
-            # 先去除可能的多余字符（比如前后的反引号、空格）
             clean_intent_text = intent_text.strip().strip("`").strip()
             intent_data = json.loads(clean_intent_text)
             intent_str = intent_data.get("intent_type", "")
-            # 分割并清洗
             intents = [i.strip() for i in intent_str.split(",") if i.strip()]
         except json.JSONDecodeError:
-            # JSON解析失败时，直接处理原始文本（去除特殊字符）
             clean_text = intent_text.strip().strip('"').strip("'").strip()
             intents = [i.strip() for i in clean_text.split(",") if i.strip()]
 
-        # 调试：可选，上线后可删除
         # print(f"调试：intents = {intents}")
 
-        # 严格匹配，确保意图在预定义列表中
         valid_intents = [i for i in intents if i in all_intents]
 
         return ",".join(valid_intents) if valid_intents else "其他"
@@ -126,4 +120,5 @@ def process_file(input_filename, output_filename):
 if __name__ == "__main__":
     input_filename = "./data/MedicalRetrieval/queries.jsonl"
     output_filename = "./data/MedicalRetrieval/queries_intent.jsonl"
+
     process_file(input_filename, output_filename)
