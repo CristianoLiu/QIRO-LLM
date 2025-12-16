@@ -3,7 +3,7 @@
 ```
 git clone https://github.com/ll0ruc/QIRO-LLM.git
 ```
-## 2.Create and activate the conda environment:
+## 2. Create and activate the conda environment:
 ```
 conda create -n QIRO-LLM python=3.10
 conda activate QIRO-LLM
@@ -18,14 +18,14 @@ pip install datasets==2.21.0
 pip install vllm==0.5.4
 ```
 # 💽 Run
-## 1、LLM for intent_recognize.py
+## 1. LLM for intent_recognize.py
 ```
 conda activate QIRO-LLM
 python query_intent_recognize.py
 ```
-## 2、LLM for query_optimization.py
+## 2. LLM for query_optimization.py
 ```
 conda activate QIRO-LLM
 python query_optimization.py
 ```
-## 3、
+## 3. 
