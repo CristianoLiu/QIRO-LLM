@@ -118,7 +118,8 @@ def process_file(input_filename, output_filename):
 
 
 if __name__ == "__main__":
-    input_filename = "./data/MedicalRetrieval/queries.jsonl"
-    output_filename = "./data/MedicalRetrieval/queries_intent.jsonl"
+    input_filename = "./data/xxx/queries.jsonl"
+    output_filename = "./data/xxx/queries_intent_xxx.jsonl"
 
     process_file(input_filename, output_filename)
+
