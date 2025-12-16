@@ -4,8 +4,8 @@ import re
 from openai import OpenAI
 from tqdm import tqdm
 
-os.environ["OPENAI_API_KEY"] = "sk-324ca55a29ae451ead71f468d48b3270"
-os.environ["OPENAI_BASE_URL"] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+os.environ["OPENAI_API_KEY"] = "xxx"
+os.environ["OPENAI_BASE_URL"] = "xxx"
 def openai_chat(doc_texts, intent_label):
     client = OpenAI(
         api_key=os.environ.get("OPENAI_API_KEY"),
@@ -25,12 +25,12 @@ def openai_chat(doc_texts, intent_label):
         "医疗费用": "疾病/手术/药品/检查的费用",
     }
 
-    task  = {
-    "Medical Consultation Retrieval": "将原始问题重写为一个适合检索相似医疗咨询/问诊案例的查询,使用患者视角表达，不要引入过于专业的医学术语",
-    "Medical Knowledge Retrieval": "将原始问题重写适合检索权威医学知识（指南、教材、文献）的专业查询,将口语化或非标准表达转换为规范医学术语",
-     }
+    task_prompt = {
+        "Medical Consultation Retrieval": ("将原始问题重写为一个适合检索相似医疗咨询/问诊案例的查询,使用患者视角表达，不要引入过于专业的医学术语"),
+        "Medical Knowledge Retrieval": ("将原始问题重写适合检索权威医学知识（指南、教材、文献）的专业查询,将口语化或非标准表达转换为规范医学术语"),
+    }
+    task = task_prompt.get(task_type, task_prompt["Medical Consultation Retrieval"])
 
-    # 解析意图标签，获取对应的定义
     intent_defs = []
     for intent in intent_label.split(','):
         intent = intent.strip()
@@ -38,7 +38,7 @@ def openai_chat(doc_texts, intent_label):
     intent_def_str = '；'.join(intent_defs) if intent_defs else "其他意图：不属于上述类别的其他意图"
 
     prompt = f"""
-    您的任务是根据指定的任务类型{task}和意图类别{intent_templates}优化用户提供的医疗和健康相关查询。
+    您的任务是根据指定的任务类型{task}和意图类别定义{intent_templates}优化用户提供的医疗和健康相关查询。
     优化后的查询应满足以下要求：
     1. 语言应该清晰、简洁、明确，便于理解。
     2. 应该保留原始查询的核心意图，而不引入过于专门化或模糊的术语。
@@ -53,7 +53,6 @@ def openai_chat(doc_texts, intent_label):
     用户输入意图: {intent_label}
     """
     try:
-        # 调用 OpenAI API
         response = client.chat.completions.create(
             model="deepseek-r1",
             messages=[
@@ -65,10 +64,8 @@ def openai_chat(doc_texts, intent_label):
 
         response_text = response.choices[0].message.content.strip()
 
-        # 清理干扰字符
         response_text = re.sub(r'^```json|```$', '', response_text, flags=re.MULTILINE).strip()
 
-        # 提取JSON结构
         json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
         if json_match:
             response_text = json_match.group(0)
@@ -76,7 +73,6 @@ def openai_chat(doc_texts, intent_label):
             print(f"未找到有效的JSON结构: {response_text}")
             return None
 
-        # 解析JSON响应
         try:
             result = json.loads(response_text)
             rewritten_query = result.get("rewritten_query", "").strip()
@@ -89,11 +85,8 @@ def openai_chat(doc_texts, intent_label):
         print(f"API调用错误: {e}")
         return None
 
-
-# 处理文件并保持JSONL格式，每处理一个就保存一次
 def process_file(input_filename, output_filename):
     try:
-        # 读取已处理的ID，避免重复处理
         processed_ids = set()
         try:
             with open(output_filename, 'r', encoding='utf-8') as prev_outfile:
@@ -105,11 +98,9 @@ def process_file(input_filename, output_filename):
         except FileNotFoundError:
             pass
 
-        # 读取输入文件所有行
         with open(input_filename, 'r', encoding='utf-8') as infile:
             lines = infile.readlines()
 
-        # 处理每一行并即时保存
         for line in tqdm(lines, desc="Processing", unit="item"):
             line = line.strip()
             if not line:
@@ -119,21 +110,17 @@ def process_file(input_filename, output_filename):
             if id_ in processed_ids:
                 continue
 
-            # 获取原始文本和意图标签
             original_text = item.get('text', "")
             intent_label = item.get('intent', "")
 
-            # 调用模型进行查询优化
             rewritten_text = openai_chat(original_text, intent_label)
 
-            # 构建新的JSON对象（仅保留id、original_query、rewritten_query）
             new_item = {
                 "id": id_,
                 "original_query": original_text,
-                "rewritten_query": rewritten_text if rewritten_text else original_text  # 改写失败则保留原文本
+                "rewritten_query": rewritten_text if rewritten_text else original_text  
             }
 
-            # 每次处理完一个就立即写入文件（追加模式）
             with open(output_filename, 'a', encoding='utf-8') as outfile:
                 outfile.write(json.dumps(new_item, ensure_ascii=False) + '\n')
 
@@ -141,9 +128,8 @@ def process_file(input_filename, output_filename):
     except Exception as e:
         print(f"文件处理出错: {e}")
 
-
-# 示例调用
-input_filename = './data/MedicalRetrieval/queries_intent.jsonl'  # 原始JSONL文件
-output_filename = './data/MedicalRetrieval/queries_OP_qwen1.jsonl'  # 输出JSONL文件
-
+input_filename = './data/xxx/queries_intent.jsonl'  
+output_filename = './data/xxx/queries_OP_xxx.jsonl'  
+# task_type = "Medical Consultation Retrieval"
+task_type = "Medical Knowledge Retrieval"
 process_file(input_filename, output_filename)
