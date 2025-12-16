@@ -28,4 +28,4 @@ python query_intent_recognize.py
 conda activate QIRO-LLM
 python query_optimization.py
 ```
-## 3. 
+## 3. evaluate of gte
