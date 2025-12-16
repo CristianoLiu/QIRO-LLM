@@ -1,7 +1,3 @@
-⚙️ Installation
-1、Clone this repository:
-git clone https://github.com/ll0ruc/QIRO-LLM.git
-2、Create and activate the conda environment:
 conda create -n QIRO-LLM python=3.10
 conda activate QIRO-LLM
 pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu121
