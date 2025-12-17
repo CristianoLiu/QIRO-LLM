@@ -117,8 +117,8 @@ def process_file(input_filename, output_filename):
 
             new_item = {
                 "id": id_,
-                "original_query": original_text,
-                "rewritten_query": rewritten_text if rewritten_text else original_text  
+                "text": original_text,
+                "op_text": rewritten_text if rewritten_text else original_text  
             }
 
             with open(output_filename, 'a', encoding='utf-8') as outfile:
@@ -133,3 +133,4 @@ output_filename = './data/xxx/queries_OP_xxx.jsonl'
 # task_type = "Medical Consultation Retrieval"
 task_type = "Medical Knowledge Retrieval"
 process_file(input_filename, output_filename)
+
