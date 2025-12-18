@@ -44,7 +44,7 @@ def cosine_sim(a: torch.Tensor, b: torch.Tensor) -> float:
 
 def rerank_with_pids(
     query: str,
-    pid_passages: List[Tuple[str, str]],  # [(pid, passage_text), ...]
+    pid_passages: List[Tuple[str, str]], 
     reranker_tokenizer,
     reranker_model,
     device: torch.device,
@@ -72,7 +72,7 @@ def rerank_with_pids(
         scores.extend(batch_scores)
 
     ranked = sorted(zip(pids, passages, scores), key=lambda x: x[2], reverse=True)
-    return ranked  # List[(pid, passage, score)]
+    return ranked 
 
 class Encoder:
 
@@ -155,7 +155,6 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Using device:", device)
 
-    # 0) load task data (for corpus + qrels)
     task = DuBaikeRetrievalMTEB()
     task.load_data()
     split = "test"
@@ -258,3 +257,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
