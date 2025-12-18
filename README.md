@@ -28,4 +28,7 @@ python query_intent_recognize.py
 conda activate QIRO-LLM
 python query_optimization.py
 ```
-## 3. evaluate of gte
+## 3. evaluate of gte-large-zh
+```
+python gte_rerank_add.py
+```
