@@ -4,18 +4,12 @@ import json
 import os
 from collections import defaultdict
 from typing import List, Dict, Any, Optional, Tuple
-
 import torch
 from torch.nn import functional as F
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-
 from utils import FlagDRESModel
-
-# ====== MTEB imports（仅用于组织数据结构；不再用 task.evaluate 做检索） ======
 from mteb.abstasks.AbsTaskRetrieval import AbsTaskRetrieval
-
-# ✅ MTEB Retrieval 底层同款 evaluator（BEIR）
 from beir.retrieval.evaluation import EvaluateRetrieval
 
 
@@ -48,8 +42,6 @@ def load_embeddings(file_path: str) -> Dict[str, torch.Tensor]:
 def cosine_sim(a: torch.Tensor, b: torch.Tensor) -> float:
     return F.cosine_similarity(a.unsqueeze(0), b.unsqueeze(0)).item()
 
-
-# ===================== Reranker（携带 pid，避免 index(text) 重复坑） =====================
 def rerank_with_pids(
     query: str,
     pid_passages: List[Tuple[str, str]],  # [(pid, passage_text), ...]
@@ -82,13 +74,7 @@ def rerank_with_pids(
     ranked = sorted(zip(pids, passages, scores), key=lambda x: x[2], reverse=True)
     return ranked  # List[(pid, passage, score)]
 
-
-# ===================== Encoder（完全不使用 instruction） =====================
 class Encoder:
-    """
-    不设置 query_instruction_for_retrieval / doc_instruction_for_retrieval
-    直接用 FlagDRESModel 的默认 encode_queries / encode_corpus 行为
-    """
     def __init__(self, model_name_or_path: str, pooling_method: str = "cls"):
         self.model = FlagDRESModel(
             model_name_or_path=model_name_or_path,
@@ -113,14 +99,12 @@ class Encoder:
                 out.append(torch.tensor(v))
         return out
 
-
-# ===================== MTEB Custom Retrieval Task（仅用于组织 qrels/corpus/queries） =====================
-class DuBaikeRetrievalMTEB(AbsTaskRetrieval):
+class xxx(AbsTaskRetrieval):
     @property
     def description(self):
         return {
-            "name": "DuBaikeRetrieval",
-            "description": "Custom retrieval dataset for DuBaike",
+            "name": "xxx",
+            "description": "Custom retrieval dataset for xxx",
             "reference": "",
             "type": "Retrieval",
             "category": "s2p",
@@ -130,9 +114,9 @@ class DuBaikeRetrievalMTEB(AbsTaskRetrieval):
         }
 
     def load_data(self, **kwargs):
-        queries = load_jsonl("./data/DuBaikeRetrieval/merged_qwen.jsonl")
-        corpus = load_jsonl("./data/DuBaikeRetrieval/corpus.jsonl")
-        test_qrels = load_jsonl("./data/DuBaikeRetrieval/qrels/test.jsonl")
+        queries = load_jsonl("./data/xxx/merged_qwen.jsonl")
+        corpus = load_jsonl("./data/xxx/corpus.jsonl")
+        test_qrels = load_jsonl("./data/xxx/qrels/test.jsonl")
 
         split = "test"
 
@@ -158,8 +142,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--encoder_path", type=str, default="./model/gte-large-zh")
     parser.add_argument("--pooling_method", type=str, default="cls", choices=["cls", "mean"])
-    parser.add_argument("--embedding_cache_path", type=str, default="./data/DuBaikeRetrieval/corpus_embeddings.json")
-    parser.add_argument("--results_path", type=str, default="./data/DuBaikeRetrieval/results_with_rerank1217.jsonl")
+    parser.add_argument("--embedding_cache_path", type=str, default="./data/xxx/corpus_embeddings.json")
+    parser.add_argument("--results_path", type=str, default="./data/xxx/xxx.jsonl")
     parser.add_argument("--text_weight", type=float, default=0.6)
     parser.add_argument("--op_text_weight", type=float, default=0.4)
     parser.add_argument("--top_k_for_rerank", type=int, default=100)
@@ -170,7 +154,7 @@ def main():
     print("Using device:", device)
 
     # 0) load task data (for corpus + qrels)
-    task = DuBaikeRetrievalMTEB()
+    task = xxxMTEB()
     task.load_data()
     split = "test"
 
@@ -180,15 +164,12 @@ def main():
         for qid, rels in task.relevant_docs[split].items()
     }
 
-    # 1) embedding encoder（完全不加 instruction）
     encoder = Encoder(args.encoder_path, pooling_method=args.pooling_method)
 
-    # 2) reranker
     reranker_tokenizer = AutoTokenizer.from_pretrained("./model/bge-reranker-v2-m3")
     reranker_model = AutoModelForSequenceClassification.from_pretrained("./model/bge-reranker-v2-m3").to(device)
     reranker_model.eval()
 
-    # 3) corpus embedding cache
     corpus_ids = list(task.corpus[split].keys())
     corpus_texts = [task.corpus[split][pid]["text"] for pid in corpus_ids]
 
@@ -202,12 +183,10 @@ def main():
         print("Saving corpus embeddings to:", args.embedding_cache_path)
         save_embeddings(corpus_embeddings, args.embedding_cache_path)
 
-    # 4) 收集 run（BEIR/MTEB 口径的 results dict）
     run_before: Dict[str, Dict[str, float]] = {}
     run_after: Dict[str, Dict[str, float]] = {}
     all_results = []
 
-    # 用原 queries 文件（含 op_text），保留你的检索逻辑
     queries_raw = load_jsonl("./data/DuBaikeRetrieval/merged_qwen.jsonl")
 
     for q in tqdm(queries_raw, desc="Retrieval + Rerank"):
@@ -255,7 +234,6 @@ def main():
         ]
         all_results.append({"q_id": q_id, "results": results})
 
-    # 5) ✅ 用 BEIR EvaluateRetrieval 计算（MTEB Retrieval 同口径）
     k_values = [args.final_top_k]
 
     ndcg_b, map_b, recall_b, precision_b = EvaluateRetrieval.evaluate(qrels, run_before, k_values)
@@ -273,7 +251,6 @@ def main():
         f"Recall@{k}: {recall_a[f'Recall@{k}']:.4f}  P@{k}: {precision_a[f'P@{k}']:.4f}"
     )
 
-    # 保存 rerank 结果
     with open(args.results_path, "w", encoding="utf-8") as f:
         for item in all_results:
             f.write(json.dumps(item, ensure_ascii=False) + "\n")
@@ -281,3 +258,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
