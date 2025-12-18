@@ -75,6 +75,7 @@ def rerank_with_pids(
     return ranked  # List[(pid, passage, score)]
 
 class Encoder:
+
     def __init__(self, model_name_or_path: str, pooling_method: str = "cls"):
         self.model = FlagDRESModel(
             model_name_or_path=model_name_or_path,
@@ -99,12 +100,13 @@ class Encoder:
                 out.append(torch.tensor(v))
         return out
 
-class xxx(AbsTaskRetrieval):
+
+class DuBaikeRetrievalMTEB(AbsTaskRetrieval):
     @property
     def description(self):
         return {
-            "name": "xxx",
-            "description": "Custom retrieval dataset for xxx",
+            "name": "DuBaikeRetrieval",
+            "description": "Custom retrieval dataset for DuBaike",
             "reference": "",
             "type": "Retrieval",
             "category": "s2p",
@@ -114,9 +116,9 @@ class xxx(AbsTaskRetrieval):
         }
 
     def load_data(self, **kwargs):
-        queries = load_jsonl("./data/xxx/merged_qwen.jsonl")
-        corpus = load_jsonl("./data/xxx/corpus.jsonl")
-        test_qrels = load_jsonl("./data/xxx/qrels/test.jsonl")
+        queries = load_jsonl("./data/DuBaikeRetrieval/merged_qwen.jsonl")
+        corpus = load_jsonl("./data/DuBaikeRetrieval/corpus.jsonl")
+        test_qrels = load_jsonl("./data/DuBaikeRetrieval/qrels/test.jsonl")
 
         split = "test"
 
@@ -142,8 +144,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--encoder_path", type=str, default="./model/gte-large-zh")
     parser.add_argument("--pooling_method", type=str, default="cls", choices=["cls", "mean"])
-    parser.add_argument("--embedding_cache_path", type=str, default="./data/xxx/corpus_embeddings.json")
-    parser.add_argument("--results_path", type=str, default="./data/xxx/xxx.jsonl")
+    parser.add_argument("--embedding_cache_path", type=str, default="./data/DuBaikeRetrieval/corpus_embeddings.json")
+    parser.add_argument("--results_path", type=str, default="./data/DuBaikeRetrieval/results_with_rerank.jsonl")
     parser.add_argument("--text_weight", type=float, default=0.6)
     parser.add_argument("--op_text_weight", type=float, default=0.4)
     parser.add_argument("--top_k_for_rerank", type=int, default=100)
@@ -154,7 +156,7 @@ def main():
     print("Using device:", device)
 
     # 0) load task data (for corpus + qrels)
-    task = xxxMTEB()
+    task = DuBaikeRetrievalMTEB()
     task.load_data()
     split = "test"
 
@@ -186,7 +188,7 @@ def main():
     run_before: Dict[str, Dict[str, float]] = {}
     run_after: Dict[str, Dict[str, float]] = {}
     all_results = []
-
+    
     queries_raw = load_jsonl("./data/DuBaikeRetrieval/merged_qwen.jsonl")
 
     for q in tqdm(queries_raw, desc="Retrieval + Rerank"):
@@ -209,13 +211,11 @@ def main():
         scores.sort(key=lambda x: x[1], reverse=True)
         top_candidates = scores[: args.top_k_for_rerank]
 
-        # before rerank：取前 final_top_k
         run_before[q_id] = {pid: score for pid, score in top_candidates[: args.final_top_k]}
 
         candidate_pids = [pid for pid, _ in top_candidates]
         pid_passages = [(pid, corpus_dict[pid]) for pid in candidate_pids]
 
-        # rerank
         reranked = rerank_with_pids(
             full_query,
             pid_passages,
@@ -233,7 +233,7 @@ def main():
             for pid, passage, score in final_reranked
         ]
         all_results.append({"q_id": q_id, "results": results})
-
+        
     k_values = [args.final_top_k]
 
     ndcg_b, map_b, recall_b, precision_b = EvaluateRetrieval.evaluate(qrels, run_before, k_values)
@@ -258,5 +258,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
