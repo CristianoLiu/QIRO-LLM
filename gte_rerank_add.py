@@ -4,19 +4,13 @@ import json
 import os
 from collections import defaultdict
 from typing import List, Dict, Any, Tuple
-
 import torch
 from torch.nn import functional as F
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-
 from utils import FlagDRESModel
-
 from mteb.abstasks.AbsTaskRetrieval import AbsTaskRetrieval
-
-
 from beir.retrieval.evaluation import EvaluateRetrieval
-
 
 def load_jsonl(path: str) -> List[Dict[str, Any]]:
     data = []
@@ -296,3 +290,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
