@@ -3,13 +3,18 @@ import argparse
 import json
 import os
 from collections import defaultdict
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Tuple
+
 import torch
 from torch.nn import functional as F
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
+
 from utils import FlagDRESModel
+
 from mteb.abstasks.AbsTaskRetrieval import AbsTaskRetrieval
+
+
 from beir.retrieval.evaluation import EvaluateRetrieval
 
 
@@ -42,6 +47,7 @@ def load_embeddings(file_path: str) -> Dict[str, torch.Tensor]:
 def cosine_sim(a: torch.Tensor, b: torch.Tensor) -> float:
     return F.cosine_similarity(a.unsqueeze(0), b.unsqueeze(0)).item()
 
+
 def rerank_with_pids(
     query: str,
     pid_passages: List[Tuple[str, str]], 
@@ -72,10 +78,10 @@ def rerank_with_pids(
         scores.extend(batch_scores)
 
     ranked = sorted(zip(pids, passages, scores), key=lambda x: x[2], reverse=True)
-    return ranked 
+    return ranked  
+
 
 class Encoder:
-
     def __init__(self, model_name_or_path: str, pooling_method: str = "cls"):
         self.model = FlagDRESModel(
             model_name_or_path=model_name_or_path,
@@ -88,8 +94,25 @@ class Encoder:
             return vecs[0].detach().cpu()
         return torch.tensor(vecs[0])
 
-    def encode_corpus(self, texts: List[str], batch_size: int = 32) -> List[torch.Tensor]:
-        vecs = self.model.encode_corpus(texts, batch_size=batch_size)
+    def encode_corpus(self, corpus: List[Any], batch_size: int = 32) -> List[torch.Tensor]:
+        """
+        兼容两种输入：
+        - List[str]
+        - List[Dict]，每个 dict 至少包含 {"text": ...}（可带 id 等字段）
+        """
+        if len(corpus) == 0:
+            return []
+
+        first = corpus[0]
+        if isinstance(first, str):
+            corpus_items = [{"text": t} for t in corpus]
+        elif isinstance(first, dict):
+            corpus_items = corpus
+        else:
+            raise TypeError(f"Unsupported corpus item type: {type(first)}")
+
+        vecs = self.model.encode_corpus(corpus_items, batch_size=batch_size)
+
         out: List[torch.Tensor] = []
         if isinstance(vecs, torch.Tensor):
             vecs = vecs.detach().cpu()
@@ -99,7 +122,6 @@ class Encoder:
             for v in vecs:
                 out.append(torch.tensor(v))
         return out
-
 
 class DuBaikeRetrievalMTEB(AbsTaskRetrieval):
     @property
@@ -144,10 +166,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--encoder_path", type=str, default="./model/gte-large-zh")
     parser.add_argument("--pooling_method", type=str, default="cls", choices=["cls", "mean"])
-    parser.add_argument("--embedding_cache_path", type=str, default="./data/DuBaikeRetrieval/corpus_embeddings.json")
+    parser.add_argument("--embedding_cache_path", type=str, default="./data/DuBaikeRetrieval/corpus_embeddings_gte.json")
     parser.add_argument("--results_path", type=str, default="./data/DuBaikeRetrieval/results_with_rerank.jsonl")
-    parser.add_argument("--text_weight", type=float, default=0.6)
-    parser.add_argument("--op_text_weight", type=float, default=0.4)
+    parser.add_argument("--text_weight", type=float, default=1)
+    parser.add_argument("--op_text_weight", type=float, default=0)
     parser.add_argument("--top_k_for_rerank", type=int, default=100)
     parser.add_argument("--final_top_k", type=int, default=10)
     args = parser.parse_args()
@@ -172,22 +194,38 @@ def main():
     reranker_model.eval()
 
     corpus_ids = list(task.corpus[split].keys())
-    corpus_texts = [task.corpus[split][pid]["text"] for pid in corpus_ids]
+    corpus_items = [{"id": str(pid), "text": task.corpus[split][pid]["text"]} for pid in corpus_ids]
 
+    need_recompute = True
     if os.path.exists(args.embedding_cache_path):
-        print("Loading precomputed corpus embeddings from cache...")
-        corpus_embeddings = load_embeddings(args.embedding_cache_path)
-    else:
-        print("No cache found, computing corpus embeddings ...")
-        corpus_emb_list = encoder.encode_corpus(corpus_texts, batch_size=32)
-        corpus_embeddings = {str(pid): emb for pid, emb in zip(corpus_ids, corpus_emb_list)}
+        try:
+            print("Loading precomputed corpus embeddings from cache...")
+            corpus_embeddings = load_embeddings(args.embedding_cache_path)
+
+            missing = [str(pid) for pid in corpus_ids if str(pid) not in corpus_embeddings]
+            if missing:
+                print(f"Cache missing {len(missing)} ids, will recompute embeddings...")
+            else:
+                need_recompute = False
+
+        except Exception as e:
+            print(f"Failed to load cache ({args.embedding_cache_path}): {e}")
+            print("Will recompute embeddings...")
+
+    if need_recompute:
+        print("Computing corpus embeddings ...")
+        corpus_emb_list = encoder.encode_corpus(corpus_items, batch_size=32)
+
+        corpus_embeddings = {item["id"]: emb for item, emb in zip(corpus_items, corpus_emb_list)}
+
+        os.makedirs(os.path.dirname(args.embedding_cache_path), exist_ok=True)
         print("Saving corpus embeddings to:", args.embedding_cache_path)
         save_embeddings(corpus_embeddings, args.embedding_cache_path)
 
     run_before: Dict[str, Dict[str, float]] = {}
     run_after: Dict[str, Dict[str, float]] = {}
     all_results = []
-    
+
     queries_raw = load_jsonl("./data/DuBaikeRetrieval/merged_qwen.jsonl")
 
     for q in tqdm(queries_raw, desc="Retrieval + Rerank"):
@@ -232,7 +270,7 @@ def main():
             for pid, passage, score in final_reranked
         ]
         all_results.append({"q_id": q_id, "results": results})
-        
+
     k_values = [args.final_top_k]
 
     ndcg_b, map_b, recall_b, precision_b = EvaluateRetrieval.evaluate(qrels, run_before, k_values)
@@ -250,6 +288,7 @@ def main():
         f"Recall@{k}: {recall_a[f'Recall@{k}']:.4f}  P@{k}: {precision_a[f'P@{k}']:.4f}"
     )
 
+    os.makedirs(os.path.dirname(args.results_path), exist_ok=True)
     with open(args.results_path, "w", encoding="utf-8") as f:
         for item in all_results:
             f.write(json.dumps(item, ensure_ascii=False) + "\n")
@@ -257,4 +296,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
