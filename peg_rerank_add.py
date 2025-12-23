@@ -4,18 +4,12 @@ import json
 import os
 from collections import defaultdict
 from typing import List, Dict, Any, Optional, Tuple
-
 import torch
 from torch.nn import functional as F
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-
 from utils import FlagDRESModel
-
-# ====== MTEB imports (用于组织数据结构；不再用 task.evaluate 做检索) ======
 from mteb.abstasks.AbsTaskRetrieval import AbsTaskRetrieval
-
-# ✅ MTEB Retrieval 底层同款 evaluator（BEIR）
 from beir.retrieval.evaluation import EvaluateRetrieval
 
 
@@ -48,17 +42,13 @@ def load_embeddings(file_path: str) -> Dict[str, torch.Tensor]:
 def cosine_sim(a: torch.Tensor, b: torch.Tensor) -> float:
     return F.cosine_similarity(a.unsqueeze(0), b.unsqueeze(0)).item()
 
-
-# ===================== instruction 配置（不拼接，只作为模型参数） =====================
 query_instruction_for_retrieval_dict = {
     "peg": "为这个句子生成表示以用于检索相关文章：",
 }
 
-
-# ===================== Reranker（改成携带 pid，避免 index(text) 的重复坑） =====================
 def rerank_with_pids(
     query: str,
-    pid_passages: List[Tuple[str, str]],  # [(pid, passage_text), ...]
+    pid_passages: List[Tuple[str, str]],  
     reranker_tokenizer,
     reranker_model,
     device: torch.device,
@@ -86,10 +76,8 @@ def rerank_with_pids(
         scores.extend(batch_scores)
 
     ranked = sorted(zip(pids, passages, scores), key=lambda x: x[2], reverse=True)
-    return ranked  # List[(pid, passage, score)]
+    return ranked  
 
-
-# ===================== 用 FlagDRESModel 做 encoding：instruction 交给模型 =====================
 class InstructionalEncoder:
     def __init__(self, model_name_or_path: str, pooling_method: str = "cls"):
         self.model = FlagDRESModel(
@@ -112,14 +100,6 @@ class InstructionalEncoder:
         return torch.tensor(vecs[0])
 
     def encode_corpus(self, corpus: List[Any], batch_size: int = 32) -> List[torch.Tensor]:
-        """
-        ✅ 兼容两种输入：
-        - List[str]
-        - List[Dict]（每个 dict 至少包含 {"text": ...}，可带 id 等字段）
-
-        原因：utils.py 里的 FlagDRESModel.encode_corpus 通常会用 doc['text']，
-        所以传 List[str] 会触发 TypeError: string indices must be integers
-        """
         if len(corpus) == 0:
             return []
 
@@ -143,8 +123,6 @@ class InstructionalEncoder:
                 out.append(torch.tensor(v))
         return out
 
-
-# ===================== MTEB Custom Retrieval Task（仅用于组织 qrels/corpus/queries） =====================
 class DuBaikeRetrievalMTEB(AbsTaskRetrieval):
     @property
     def description(self):
@@ -200,7 +178,6 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Using device:", device)
 
-    # 0) load task data (for corpus + qrels)
     task = DuBaikeRetrievalMTEB()
     task.load_data()
     split = "test"
@@ -211,7 +188,6 @@ def main():
         for qid, rels in task.relevant_docs[split].items()
     }
 
-    # 1) embedding encoder
     encoder = InstructionalEncoder(args.encoder_path, pooling_method=args.pooling_method)
     instruction = query_instruction_for_retrieval_dict.get(args.instruction_key, None)
     encoder.set_query_instruction(instruction)
@@ -219,12 +195,10 @@ def main():
     print("current instruction_key:", args.instruction_key)
     print("current query_instruction_for_retrieval:", instruction)
 
-    # 2) reranker
     reranker_tokenizer = AutoTokenizer.from_pretrained("./model/bge-reranker-v2-m3")
     reranker_model = AutoModelForSequenceClassification.from_pretrained("./model/bge-reranker-v2-m3").to(device)
     reranker_model.eval()
 
-    # 3) corpus embedding cache（没有 cache 就重新编码；cache 损坏/缺 id 也会重新编码并覆盖）
     corpus_ids = list(task.corpus[split].keys())
     corpus_items = [{"id": str(pid), "text": task.corpus[split][pid]["text"]} for pid in corpus_ids]
 
@@ -248,19 +222,16 @@ def main():
         print("No usable cache found, computing corpus embeddings ...")
         corpus_emb_list = encoder.encode_corpus(corpus_items, batch_size=32)
 
-        # encode_corpus 输出顺序与 corpus_items 一致，用 id 对齐
         corpus_embeddings = {item["id"]: emb for item, emb in zip(corpus_items, corpus_emb_list)}
 
         os.makedirs(os.path.dirname(args.embedding_cache_path), exist_ok=True)
         print("Saving corpus embeddings to:", args.embedding_cache_path)
         save_embeddings(corpus_embeddings, args.embedding_cache_path)
 
-    # 4) 收集 run（BEIR/MTEB 口径的 results dict）
     run_before: Dict[str, Dict[str, float]] = {}
     run_after: Dict[str, Dict[str, float]] = {}
     all_results = []
 
-    # 用原 queries 文件（含 op_text），保留你的检索逻辑
     queries_raw = load_jsonl("./data/DuBaikeRetrieval/merged_qwen.jsonl")
 
     for q in tqdm(queries_raw, desc="Retrieval + Rerank"):
@@ -283,13 +254,11 @@ def main():
         scores.sort(key=lambda x: x[1], reverse=True)
         top_candidates = scores[: args.top_k_for_rerank]
 
-        # before rerank：取前 final_top_k
         run_before[q_id] = {pid: score for pid, score in top_candidates[: args.final_top_k]}
 
         candidate_pids = [pid for pid, _ in top_candidates]
         pid_passages = [(pid, corpus_dict[pid]) for pid in candidate_pids]
 
-        # rerank（返回 pid，不会错位）
         reranked = rerank_with_pids(
             full_query,
             pid_passages,
@@ -308,7 +277,6 @@ def main():
         ]
         all_results.append({"q_id": q_id, "results": results})
 
-    # 5) ✅ 用 BEIR EvaluateRetrieval 计算（MTEB Retrieval 同口径）
     k_values = [args.final_top_k]
 
     ndcg_b, map_b, recall_b, precision_b = EvaluateRetrieval.evaluate(qrels, run_before, k_values)
@@ -326,7 +294,6 @@ def main():
         f"Recall@{k}: {recall_a[f'Recall@{k}']:.4f}  P@{k}: {precision_a[f'P@{k}']:.4f}"
     )
 
-    # 保存 rerank 结果
     os.makedirs(os.path.dirname(args.results_path), exist_ok=True)
     with open(args.results_path, "w", encoding="utf-8") as f:
         for item in all_results:
@@ -335,3 +302,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
